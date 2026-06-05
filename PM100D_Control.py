@@ -130,8 +130,8 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         # 自动化服务器端口
         self.auto_port = 1235
         # 启动自动化服务器
-        # self.auto_server = TCPServer(port=self.auto_port, func=self.auto_server_controller)
-        # self.auto_server.start()
+        self.auto_server = TCPServer(port=self.auto_port, func=self.auto_server_controller)
+        self.auto_server.start()
         # 客户端用于接收消息的队列
         # 数据记录表
         self.value_record = {"max": -60.0, "min": None, "value": 0.0}
@@ -144,12 +144,8 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         self.value_update.connect(self.update_value)
         self.value_save.connect(self.save_value)
         self.power_buffer = []
-        # 检查端口回调函数
-        # self.check_port_callback()
-        # 导入配置文件
-        # if self.config:
-            # if "Port" in self.config:
-                # self.Com.setCurrentText(self.config["Port"]["name"])
+        
+        self.check_port_callback()
 
         self.init_btn()
 

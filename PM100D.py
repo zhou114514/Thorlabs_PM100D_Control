@@ -25,6 +25,7 @@ Thorlabs PM100D功率计驱动模块
 
 import time
 import pyvisa
+from typing import Literal
 
 
 class PM100D:
@@ -34,7 +35,7 @@ class PM100D:
     提供与Thorlabs PM100D系列光功率计通信的完整接口。支持USB VISA连接，
     可进行功率测量、设备配置、调零校准等操作。
     
-    设备地址格式：USB0::4883::32888::P0047129::0::INSTR
+    设备地址格式：USB0::0x1313::0x8078::P0051073::INSTR
     - 厂商ID: 4883 (0x1313, Thorlabs)
     - 产品ID: 32888 (0x8078)
     
@@ -51,10 +52,9 @@ class PM100D:
         创建VISA资源管理器，使用pyvisa-py后端以支持纯Python实现。
         初始化设备列表和连接实例为None。
         """
-        self.rm = pyvisa.ResourceManager('@py')  # 使用pyvisa-py后端
+        self.rm = pyvisa.ResourceManager()  # 使用pyvisa-py后端
         self.devices = None
         self.inst = None
-        self.user_power_unit = 'DBM'  # 记录用户选择的功率单位
 
     def heartbeat(self):
         """
@@ -70,10 +70,10 @@ class PM100D:
             >>> pm = PM100D()
             >>> devices = pm.heartbeat()
             >>> print(devices)
-            ['USB0::4883::32888::P0047129::0::INSTR']
+            ['USB0::0x1313::0x8078::P0051073::INSTR']
         """
         if self.rm is None:
-            self.rm = pyvisa.ResourceManager('@py')
+            self.rm = pyvisa.ResourceManager()
         devices = self.rm.list_resources()
         # print("检测到设备: ", self.rm.list_resources())
         return devices
@@ -86,32 +86,32 @@ class PM100D:
         设置功率单位为μW，并配置通信超时时间。
         
         Args:
-            device_name (str): 设备VISA地址，格式如"USB0::4883::32888::P0047129::0::INSTR"
+            device_name (str): 设备VISA地址，格式如"USB0::0x1313::0x8078::P0051073::INSTR"
             
         Returns:
             bool: 连接是否成功
             
         Example:
             >>> pm = PM100D()
-            >>> success = pm.connect("USB0::4883::32888::P0047129::0::INSTR")
+            >>> success = pm.connect("USB0::0x1313::0x8078::P0051073::INSTR")
             >>> if success:
             ...     print("连接成功")
             
         Note:
-            - 仅支持Thorlabs设备（设备地址包含"USB0::4883::32888"）
+            - 仅支持Thorlabs设备（设备地址包含"0x1313"）
             - 连接成功后会自动设置功率单位为μW
             - 设置通信超时时间为5000毫秒
         """
         try:
             # 关闭连接后需要重新创建资源管理器
             if self.rm is None:
-                self.rm = pyvisa.ResourceManager('@py')
+                self.rm = pyvisa.ResourceManager()
             if self.devices is None:
                 self.devices = self.rm.list_resources()
                 # print("检测到的设备:", self.devices)
 
             # 检查是否为Thorlabs设备
-            if "USB0::4883::32888" in device_name:
+            if "0x1313" in device_name:
                 self.inst = self.rm.open_resource(device_name)
                 # self.inst.write('*RST')  # 发送硬件复位命令
                 # self.inst.write('*CLS')  # 清除状态
@@ -119,7 +119,9 @@ class PM100D:
                 # print(self.inst.query("*IDN?"))  # 查询设备标识
                 
                 # 连接成功后设置默认功率单位为微瓦
-                self.set_power_unit('μW')
+                self.set_power_unit('W')
+                self.set_wavelength(1550)
+                self.start_auto_range()
                 return True
 
             return False
@@ -141,7 +143,7 @@ class PM100D:
                  
         Example:
             >>> pm = PM100D()
-            >>> pm.connect("USB0::4883::32888::P0047129::0::INSTR")
+            >>> pm.connect("USB0::0x1313::0x8078::P0051073::INSTR")
             >>> power = pm.read_power()
             >>> if power:
             ...     print(f"当前功率: {power[0]} dBm")
@@ -166,11 +168,6 @@ class PM100D:
                 return []
                 
             power_value = float(power)
-            
-            # 如果用户选择的单位是微瓦，需要进行单位转换
-            if hasattr(self, 'user_power_unit') and self.user_power_unit == 'μW':
-                # 将瓦特转换为微瓦 (1W = 1,000,000μW)
-                power_value = power_value * 1_000_000
                 
         except Exception as e:
             # print("读取错误: ", e)
@@ -193,7 +190,7 @@ class PM100D:
             
         Example:
             >>> pm = PM100D()
-            >>> pm.connect("USB0::4883::32888::P0047129::0::INSTR")
+            >>> pm.connect("USB0::0x1313::0x8078::P0051073::INSTR")
             >>> if pm.zero_adjustment():
             ...     print("调零成功")
             
@@ -245,7 +242,7 @@ class PM100D:
             
         Example:
             >>> pm = PM100D()
-            >>> pm.connect("USB0::4883::32888::P0047129::0::INSTR")
+            >>> pm.connect("USB0::0x1313::0x8078::P0051073::INSTR")
             >>> wavelength = pm.get_wavelength()
             >>> print(f"当前波长: {wavelength} nm")
             
@@ -269,7 +266,7 @@ class PM100D:
             
         Example:
             >>> pm = PM100D()
-            >>> pm.connect("USB0::4883::32888::P0047129::0::INSTR")
+            >>> pm.connect("USB0::0x1313::0x8078::P0051073::INSTR")
             >>> if pm.set_wavelength(850):
             ...     print("波长设置成功")
             
@@ -292,6 +289,7 @@ class PM100D:
             return False
 
         self.inst.write(f"SENS:CORR:WAV {wavelength}")
+        print(f"波长已设置为: {wavelength} nm")
         return True
 
     def disconnect(self):
@@ -308,7 +306,7 @@ class PM100D:
             
         Example:
             >>> pm = PM100D()
-            >>> pm.connect("USB0::4883::32888::P0047129::0::INSTR")
+            >>> pm.connect("USB0::0x1313::0x8078::P0051073::INSTR")
             >>> # ... 进行测量操作 ...
             >>> pm.disconnect()  # 必须调用以释放资源
         """
@@ -354,11 +352,11 @@ class PM100D:
                 print(f"重连尝试{attempt + 1}失败: {str(e)}")
         return False
 
-    def set_power_unit(self, unit='μW') -> bool:
+    def set_power_unit(self, unit:Literal['W', 'DBM']='W') -> bool:
         """
         设置功率测量单位
         
-        设置功率计显示和返回测量结果的单位。支持三种单位：
+        设置功率计显示和返回测量结果的单位。支持两种单位：
         微瓦(μW)、分贝毫瓦(DBM)和分贝(DB)。
         
         Args:
@@ -372,34 +370,17 @@ class PM100D:
             
         Example:
             >>> pm = PM100D()
-            >>> pm.connect("USB0::4883::32888::P0047129::0::INSTR")
-            >>> pm.set_power_unit('μW')   # 设置为微瓦
+            >>> pm.connect("USB0::0x1313::0x8078::P0051073::INSTR")
+            >>> pm.set_power_unit('W')   # 设置为瓦
             >>> pm.set_power_unit('DBM')  # 设置为分贝毫瓦
-            
-        Note:
-            - 单位参数不区分大小写
-            - μW单位在设备上实际设置为W，软件层面进行转换
-            - DBM单位便于显示小功率值
-            - 设置成功后会打印确认信息
         """
         if self.inst is None:
             return False
             
-        valid_units = {'μW', 'DBM', 'DB'}
-        if unit.upper() not in [u.upper() for u in valid_units]:
-            print(f"无效单位，可选: {valid_units}")
-            return False
+        cmd = f":POW:UNIT {unit}"
 
-        # 如果选择微瓦，实际在设备上设置为瓦特
-        if unit.upper() == 'μW':
-            device_unit = 'W'
-        else:
-            device_unit = unit.upper()
-            
-        self.inst.write(f":POW:UNIT {device_unit}")
-        # 记录用户选择的单位
-        self.user_power_unit = unit
-        print(f"单位已设置为: {unit}")
+        self.inst.write(cmd)
+        print(f"功率单位已设置为: {unit}")
         return True
 
     def get_power_unit(self) -> str:
@@ -407,31 +388,27 @@ class PM100D:
         获取当前设置的功率测量单位
         
         返回用户选择的功率测量单位。可能的返回值包括：
-        微瓦(μW)、分贝毫瓦(DBM)或分贝(DB)。
+        瓦(W)、分贝毫瓦(DBM)。
         
         Returns:
             str: 当前功率单位，可能的值：
-                 - 'μW': 微瓦（线性单位，1W = 1,000,000μW）
-                 - 'DBM': 分贝毫瓦（对数单位，参考1mW）
-                 - 'DB': 分贝（相对单位）
+                 - 'W': 瓦
+                 - 'DBM': 分贝毫瓦
                  如果设备未连接，返回空字符串
                  
         Example:
             >>> pm = PM100D()
-            >>> pm.connect("USB0::4883::32888::P0047129::0::INSTR")
+            >>> pm.connect("USB0::0x1313::0x8078::P0051073::INSTR")
             >>> unit = pm.get_power_unit()
             >>> print(f"当前功率单位: {unit}")
-            
-        Note:
-            返回用户选择的单位，如果选择μW则返回μW而非设备的W单位
         """
         if self.inst is None:
             print("未连接设备!")
             return ""
             
         try:
-            # 返回用户选择的单位，而不是设备的实际单位
-            return self.user_power_unit
+            unit = self.inst.query(":POW:UNIT?")
+            return unit
         except Exception as e:
             print(f"获取功率单位失败: {e}")
             return ""
@@ -484,7 +461,7 @@ class PM100D:
         if self.inst is None:
             print("未连接设备!")
             return False
-        self.inst.write("SENS:RANG:AUTO 1")
+        self.inst.write("SENS:CURR:RANG:AUTO 1")
         return True
 
     def stop_auto_range(self):
@@ -496,7 +473,7 @@ class PM100D:
         if self.inst is None:
             print("未连接设备!")
             return False
-        self.inst.write("SENS:RANG:AUTO 0")
+        self.inst.write("SENS:CURR:RANG:AUTO 0")
         return True
 
     def get_comp(self):
@@ -534,14 +511,14 @@ class PM100D:
 
 
 if __name__ == "__main__":
-    pm = PM100D()
-    #rm = pyvisa.ResourceManager('@py')
-    #devices = rm.list_resources()
-    #print("检测到的设备:", devices)
+    # pm = PM100D()
+    rm = pyvisa.ResourceManager()
+    devices = rm.list_resources()
+    print("检测到的设备:", devices)
     #inst = rm.open_resource(devices[0])
     # print(usb.core.find())
-    pm.connect("USB0::4883::32888::P0048741::0::INSTR")
-    print(pm.read_power())
+    # pm.connect("USB0::4883::32888::P0048741::0::INSTR")
+    # print(pm.read_power())
     # print(pm.start_auto_range())
     # print(pm.get_auto_range_status())
     # pm.zero_adjustment()
@@ -561,4 +538,4 @@ if __name__ == "__main__":
 
     # print(pm.get_comp())
 
-    pm.reconnect_device(5)
+    # pm.reconnect_device(5)
