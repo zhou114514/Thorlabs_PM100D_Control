@@ -365,15 +365,15 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         else:
             return self.make_pack(False, "", "Unknown command!")
 
-    def make_pack(self, isSuccess, Value, ErrorMessage):
+    def make_pack(self, IsSuccessful, Value, ErrorMessage):
         """
         打包响应体
-        :param isSuccess: 操作是否成功
+        :param IsSuccessful: 操作是否成功
         :param Value:     响应值
         :param ErrorMessage: 错误信息
         :return: 响应体
         """
-        data = {"isSuccess": isSuccess, "Value": Value, "ErrorMessage": ErrorMessage}
+        data = {"IsSuccessful": IsSuccessful, "Value": Value, "ErrorMessage": ErrorMessage}
         return json.dumps(data)
 
     def disconnect_pm(self):
