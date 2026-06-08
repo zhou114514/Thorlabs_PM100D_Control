@@ -603,12 +603,19 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
             self.update_info(f"不支持的功率单位: {unit}")
             return False
 
+        # 已是目标单位时直接返回，避免无意义的 VISA 访问
+        if normalized == self.current_unit.strip().upper():
+            return True
+
         self.operation = True
         try:
             success = self.device.set_power_unit(normalized)
             if success:
                 actual_unit = self.device.get_power_unit()
-                self.current_unit = actual_unit.strip().upper() if isinstance(actual_unit, str) else normalized
+                if isinstance(actual_unit, str) and actual_unit.strip():
+                    self.current_unit = actual_unit.strip().upper()
+                else:
+                    self.current_unit = normalized
                 self.CH1_unit.setText(str(actual_unit))
                 index = self.CH1TUnit.findText(normalized)
                 if index >= 0:

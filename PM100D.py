@@ -23,6 +23,7 @@ Thorlabs PM100D功率计驱动模块
 版本: v1.0.1
 """
 
+import threading
 import time
 import pyvisa
 from typing import Literal
@@ -55,6 +56,7 @@ class PM100D:
         self.rm = pyvisa.ResourceManager()  # 使用pyvisa-py后端
         self.devices = None
         self.inst = None
+        self._visa_lock = threading.Lock()
 
     def heartbeat(self):
         """
@@ -156,11 +158,11 @@ class PM100D:
         # 如果检测到已经断开连接，则停止读取
         if self.inst is None:
             return None
-        inst = self.inst
 
         try:
-            # power = inst.query(":READ?")  # 直接读取当前功率值的替代方法
-            power = inst.query(":MEAS:POW?")
+            with self._visa_lock:
+                # power = self.inst.query(":READ?")  # 直接读取当前功率值的替代方法
+                power = self.inst.query(":MEAS:POW?")
             # print(f"当前功率: {power}W")  # 科学计数法显示
             
             # 当返回这个数值时说明功率计出错
@@ -316,16 +318,17 @@ class PM100D:
         if self.inst:
             # 关闭连接前复位硬件和清除状态，不然无法重新连接。
             # 用 try/except 包裹：若采集线程刚释放资源，偶发锁冲突时仍能正常关闭。
-            try:
-                self.inst.write('*RST')  # 发送硬件复位命令
-            except Exception as e:
-                print(f"disconnect: *RST 发送失败（忽略）: {e}")
-            try:
-                self.inst.write('*CLS')  # 清除状态
-            except Exception as e:
-                print(f"disconnect: *CLS 发送失败（忽略）: {e}")
+            with self._visa_lock:
+                try:
+                    self.inst.write('*RST')  # 发送硬件复位命令
+                except Exception as e:
+                    print(f"disconnect: *RST 发送失败（忽略）: {e}")
+                try:
+                    self.inst.write('*CLS')  # 清除状态
+                except Exception as e:
+                    print(f"disconnect: *CLS 发送失败（忽略）: {e}")
 
-            self.inst.close()
+                self.inst.close()
             self.inst = None
             # print("设备已断开连接!")
             
@@ -382,12 +385,18 @@ class PM100D:
         """
         if self.inst is None:
             return False
-            
-        cmd = f"SENS:POW:UNIT {unit}"
 
-        self.inst.write(cmd)
-        print(f"功率单位已设置为: {unit}")
-        return True
+        try:
+            with self._visa_lock:
+                current = self.inst.query("SENS:POW:UNIT?").strip().upper()
+                if current == unit:
+                    return True
+                self.inst.write(f"SENS:POW:UNIT {unit}")
+            print(f"功率单位已设置为: {unit}")
+            return True
+        except Exception as e:
+            print(f"设置功率单位失败: {e}")
+            return False
 
     def get_power_unit(self) -> str:
         """
@@ -413,8 +422,8 @@ class PM100D:
             return ""
             
         try:
-            unit = self.inst.query("SENS:POW:UNIT?")
-            return unit
+            with self._visa_lock:
+                return self.inst.query("SENS:POW:UNIT?")
         except Exception as e:
             print(f"获取功率单位失败: {e}")
             return ""
