@@ -327,19 +327,15 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
                 return self.make_pack(False, '', f'command not supported:{data}')
         # 连接设备接口
         elif data['opcode'] == 'ConnectDevice':
-            # 自动化连接的时候串口还没有打开，所以还要先打开串口
-            a = self.PortOpen_callback(alert=False)
-            b = False
+            # 先扫描刷新可用设备列表，再执行连接
+            self.check_port_callback()
             time.sleep(0.01)
-            if a:
-                b = self.connect_pm()
-            error_msg = ""
-            if not a or not b:
-                error_msg = "连接设备错误!"
-            return self.make_pack(a & b, "", error_msg)
+            b = self.connect_pm()
+            error_msg = "" if b else "连接设备错误!"
+            return self.make_pack(b, "", error_msg)
         # 检查版本号接口
         elif data['opcode'] == 'check':
-            return self.make_pack(True, self.VERSION, 'Null')
+            return self.make_pack(True, VERSION, 'Null')
         else:
             return self.make_pack(False, "", "Unknown command!")
 
