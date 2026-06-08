@@ -38,6 +38,7 @@ import datetime
 import json
 import os
 import socket
+import threading
 import time
 import pandas as pd
 
@@ -144,10 +145,12 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         self.value_update.connect(self.update_value)
         self.value_save.connect(self.save_value)
         self.power_buffer = []
-        
-        self.check_port_callback()
+        # 当前设备功率单位（W 或 DBM），用于界面自动缩放
+        self.current_unit = 'W'
 
         self.init_btn()
+
+        self.check_port_callback()
 
     def init_btn(self):
         """
@@ -268,6 +271,7 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
 
                 # 更新功率单位
                 unit = self.power_unit()
+                self.current_unit = unit.strip() if isinstance(unit, str) else 'W'
                 self.CH1_unit.setText("功率单位: " + str(unit))
 
                 # 开启采集线程
@@ -341,22 +345,41 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
 
     def disconnect_pm(self):
         """
-        断开和设备的连接
+        断开和设备的连接。
+
+        采集线程每 7ms 检查一次 stop_connection 标志，设置后最多等待 3s
+        让其自然退出，再执行 VISA 断开操作，避免资源被占用时写入
+        *RST/*CLS 引发 VI_ERROR_RSRC_LOCKED。
         """
         self.stop_connection = True
-        if self.future is not None:
-            if not self.future.done():
-                self.future.cancel()
-        # self.pool = None
-        # 断开连接前先停止记录以保存数据
-        self.stop_record_callback()
-        self.device.disconnect()
-        # 等待2.5秒让系统释放串口资源,不能用time.sleep，会导致主线程阻塞
-        QTimer.singleShot(2500, lambda:  self.Connect.setEnabled(True))  # 1秒后执行
+        # 立即禁用相关按钮，给用户反馈
         self.Disconnect.setEnabled(False)
         self.startRecordBtn.setEnabled(False)
         self.stopRecordBtn.setEnabled(False)
-        self.stop_connection = False
+        self.update_info("正在断开连接，请稍候...")
+        # 断开连接前先停止记录以保存数据
+        self.stop_record_callback()
+
+        future_snapshot = self.future
+
+        def _wait_and_disconnect():
+            # 等待采集线程退出，最多等 3 秒，避免 VISA 资源锁冲突
+            if future_snapshot is not None:
+                try:
+                    future_snapshot.result(timeout=3.0)
+                except Exception:
+                    pass
+            self.device.disconnect()
+            self.stop_connection = False
+            # 通过 QTimer 将 UI 更新调度回主线程
+            QTimer.singleShot(0, self._on_disconnect_done)
+
+        threading.Thread(target=_wait_and_disconnect, daemon=True).start()
+
+    def _on_disconnect_done(self):
+        """断开完成后在主线程更新 UI 状态。"""
+        # 等待系统释放 USB 资源后再启用连接按钮
+        QTimer.singleShot(2000, lambda: self.Connect.setEnabled(True))
         self.update_info("断开连接成功!")
 
     def power_record(self):
@@ -384,36 +407,46 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
                         continue
                     result = self.device.read_power()
 
-                    if result not in [[], None]:
-                        self.power_buffer = result
+                    if result is not None:
+                        self.power_buffer.append(result)
                         if counter % 10 == 0:  # 每采集10次才更新UI显示
                             counter = 0
-                            self.value_update.emit(result)
+                            self.value_update.emit(self.power_buffer)
                     if self.start_record:  # 持久化速率和采集速率一致
-                        self.value_save.emit(result)  # 更改为在按下停止记录后才开始保存
+                        self.value_save.emit(result)  # 更改为在按下开始记录后才开始保存
                     self.last_time = now
             except Exception as e:
                 print(f"PowerRecord Error: {e}")
 
     def update_value(self, value_list: list):
-
-        value = value_list[0]
-        if value == 9.91e+37:
+        # 取缓冲区最新一个值
+        value = value_list[-1]
+        if value is None:
             return
-        self.CH1_Value.display(value)
-        # 更新当前功率值和最大最小值
+
+        # 更新统计值（使用原始未缩放的值，保证比较精度）
         self.value_record["value"] = value
         if value > self.value_record["max"]:
             self.value_record["max"] = value
         if self.value_record["min"] is None:
             self.value_record["min"] = value
-        elif self.value_record["min"] is not None and value < self.value_record["min"]:
+        elif value < self.value_record["min"]:
             self.value_record["min"] = value
 
-        self.CH1_max.display(str(self.value_record["max"]))
-        self.CH1_min.display(str(self.value_record["min"]))
+        # 根据当前值的量级自动选择单位，三个 LCD 使用同一单位前缀
+        scaled, unit_label = self.format_power_for_display(value)
+        # 推导缩放因子：避免除以零，value==0 时因子为 1
+        scale_factor = (scaled / value) if value != 0 else 1.0
+
+        self.CH1_Value.display(self._format_lcd(scaled))
+        self.CH1_max.display(self._format_lcd(self.value_record["max"] * scale_factor))
+        self.CH1_min.display(self._format_lcd(self.value_record["min"] * scale_factor))
+
+        # 实时更新单位标签，反映当前自动选择的前缀
+        self.CH1_unit.setText(f"功率单位: {unit_label}")
+
         if self.start_record:
-            self.CH1_plot.update_signal.emit({'功率': self.CH1_Value.value()})
+            self.CH1_plot.update_signal.emit({'功率': value})
 
     def start_record_callback(self):
         """
@@ -537,8 +570,9 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         try:
             success = self.device.set_power_unit(selected_unit)
             if success:
-                # 更新显示
+                # 更新显示并同步 current_unit 用于界面缩放
                 unit = self.device.get_power_unit()
+                self.current_unit = unit.strip() if isinstance(unit, str) else selected_unit
                 self.CH1_unit.setText("功率单位: " + str(unit))
                 self.update_info(f"功率单位设置成功: {unit}")
                 return True
@@ -663,6 +697,61 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         self.CH1_min.display("0")
         self.value_record = {"max": -60, "min": None, "value": 0}
         self.CH1_plot.clearData()
+
+    def format_power_for_display(self, value: float) -> tuple:
+        """
+        根据当前功率单位和数值大小，自动选择合适的 SI 前缀进行缩放。
+
+        DBM 模式：直接返回原始值和 'dBm' 标签，不做量级缩放。
+        W 模式：按照 W / mW / µW / nW / pW 自动选择最合适的前缀，
+                使显示值落在 [1, 1000) 区间内（零值特殊处理）。
+
+        Returns:
+            (scaled_value: float, unit_label: str)
+        """
+        unit = self.current_unit.strip().upper()
+        if unit == 'DBM':
+            return value, 'dBm'
+
+        abs_val = abs(value)
+        if abs_val == 0:
+            return 0.0, 'W'
+        elif abs_val >= 1:
+            return value, 'W'
+        elif abs_val >= 1e-3:
+            return value * 1e3, 'mW'
+        elif abs_val >= 1e-6:
+            return value * 1e6, 'µW'
+        elif abs_val >= 1e-9:
+            return value * 1e9, 'nW'
+        else:
+            return value * 1e12, 'pW'
+
+    @staticmethod
+    def _format_lcd(value: float) -> str:
+        """
+        将已缩放后的数值格式化为适合 7 位 LCD 的字符串。
+
+        整数位越多，保留的小数位越少，始终保持 6 位有效数字以内，
+        避免超出 QLCDNumber 的显示位数。
+        """
+        if value == 0:
+            return "0"
+        abs_val = abs(value)
+        if abs_val >= 1e5:
+            return f"{value:.0f}"
+        elif abs_val >= 1e4:
+            return f"{value:.1f}"
+        elif abs_val >= 1e3:
+            return f"{value:.2f}"
+        elif abs_val >= 1e2:
+            return f"{value:.3f}"
+        elif abs_val >= 10:
+            return f"{value:.4f}"
+        elif abs_val >= 1:
+            return f"{value:.5f}"
+        else:
+            return f"{value:.6f}"
 
     def update_info(self, info):
         self.portInfo.append(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + " " + info)

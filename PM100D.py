@@ -130,7 +130,7 @@ class PM100D:
             self.disconnect()
             return False
 
-    def read_power(self) -> list:
+    def read_power(self) -> float:
         """
         读取功率测量值
         
@@ -155,7 +155,7 @@ class PM100D:
         """
         # 如果检测到已经断开连接，则停止读取
         if self.inst is None:
-            return []
+            return None
         inst = self.inst
 
         try:
@@ -164,15 +164,15 @@ class PM100D:
             # print(f"当前功率: {power}W")  # 科学计数法显示
             
             # 当返回这个数值时说明功率计出错
-            if power == "9.91E37":
-                return []
+            if float(power.strip()) >= 9.9e37:
+                return None
                 
-            power_value = float(power)
+            power_value = float(power.strip())
                 
         except Exception as e:
             # print("读取错误: ", e)
-            return []
-        return [float('%.2f' % power_value)]
+            return None
+        return power_value
 
     def zero_adjustment(self, timeout=3.0, poll_interval=0.1) -> bool:
         """
@@ -314,9 +314,16 @@ class PM100D:
         # time.sleep(0.1)
 
         if self.inst:
-            # 关闭连接前一定要复位硬件和清除状态，不然无法重新连接！！！
-            self.inst.write('*RST')  # 发送硬件复位命令
-            self.inst.write('*CLS')  # 清除状态
+            # 关闭连接前复位硬件和清除状态，不然无法重新连接。
+            # 用 try/except 包裹：若采集线程刚释放资源，偶发锁冲突时仍能正常关闭。
+            try:
+                self.inst.write('*RST')  # 发送硬件复位命令
+            except Exception as e:
+                print(f"disconnect: *RST 发送失败（忽略）: {e}")
+            try:
+                self.inst.write('*CLS')  # 清除状态
+            except Exception as e:
+                print(f"disconnect: *CLS 发送失败（忽略）: {e}")
 
             self.inst.close()
             self.inst = None
@@ -361,9 +368,8 @@ class PM100D:
         
         Args:
             unit (str): 功率单位，可选值：
-                       - 'μW': 微瓦（线性单位，1W = 1,000,000μW）
+                       - 'W': 瓦（线性单位）
                        - 'DBM': 分贝毫瓦（对数单位，参考1mW）
-                       - 'DB': 分贝（相对单位）
                        
         Returns:
             bool: 设置是否成功
@@ -377,7 +383,7 @@ class PM100D:
         if self.inst is None:
             return False
             
-        cmd = f":POW:UNIT {unit}"
+        cmd = f"SENS:POW:UNIT {unit}"
 
         self.inst.write(cmd)
         print(f"功率单位已设置为: {unit}")
@@ -407,7 +413,7 @@ class PM100D:
             return ""
             
         try:
-            unit = self.inst.query(":POW:UNIT?")
+            unit = self.inst.query("SENS:POW:UNIT?")
             return unit
         except Exception as e:
             print(f"获取功率单位失败: {e}")
@@ -451,7 +457,7 @@ class PM100D:
         if self.inst is None:
             print("未连接设备!")
             return False
-        return self.inst.query("SENS:CURR:RANG:AUTO?") == 1
+        return self.inst.query("SENS:CURR:RANG:AUTO?").strip() == '1'
 
     def start_auto_range(self):
         """

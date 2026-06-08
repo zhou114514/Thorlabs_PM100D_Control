@@ -376,7 +376,6 @@ class Ui_MainWindow(object):
         self.CH1TUnit.setObjectName("CH1TUnit")
         self.CH1TUnit.addItem("")
         self.CH1TUnit.addItem("")
-        self.CH1TUnit.addItem("")
         self.horizontalLayout_unit.addWidget(self.CH1TUnit)
         self.setCH1unit = QtWidgets.QPushButton(self.centralwidget)
         font = QtGui.QFont()
