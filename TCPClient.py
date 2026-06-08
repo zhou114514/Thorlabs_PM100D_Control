@@ -129,7 +129,7 @@ class TCPClient(QThread):
                             self.infoSignal.emit(self.name, "received:"+message)
                     buffer = messages[-1]  # 保留未完整的消息
                     
-        except ConnectionRefusedError or TimeoutError:
+        except (ConnectionRefusedError, TimeoutError):
             # logging.error("Connection refused")
             print("Connection filed\n")
             self.connectedSignal.emit("NO", "连接失败！")

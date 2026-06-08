@@ -56,10 +56,21 @@ from MyPlot import MyPlot
 from TCPServer import TCPServer
 from Ui_PM100D_Control import Ui_MainWindow
 
-# 从更新文件获取版本号
-VERSION = "Unknown" if not os.path.exists("更新内容.csv") or \
-                       pd.read_csv("更新内容.csv", header=None, index_col=None, encoding="GBK").iloc[-1, 1] is None \
-    else pd.read_csv("更新内容.csv", header=None, index_col=None, encoding="GBK").iloc[-1, 1]
+def _load_version():
+    """从更新文件读取版本号，只读取一次 CSV。"""
+    if not os.path.exists("更新内容.csv"):
+        return "Unknown"
+    try:
+        df = pd.read_csv("更新内容.csv", header=None, index_col=None, encoding="GBK")
+        version = df.iloc[-1, 1]
+        if version is None or (isinstance(version, float) and pd.isna(version)):
+            return "Unknown"
+        return str(version)
+    except Exception:
+        return "Unknown"
+
+
+VERSION = _load_version()
 
 
 class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
@@ -88,8 +99,8 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
     
     # 数据更新信号槽
     value_update = pyqtSignal(list)
-    # 保存数据信号槽
-    value_save = pyqtSignal(list)
+    # 保存数据信号槽（单条功率值）
+    value_save = pyqtSignal(float)
 
     def __init__(self, parent=None, device=None):
         """
@@ -412,8 +423,9 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
                         if counter % 10 == 0:  # 每采集10次才更新UI显示
                             counter = 0
                             self.value_update.emit(self.power_buffer)
-                    if self.start_record:  # 持久化速率和采集速率一致
-                        self.value_save.emit(result)  # 更改为在按下开始记录后才开始保存
+                            self.power_buffer.clear()
+                        if self.start_record:
+                            self.value_save.emit(result)
                     self.last_time = now
             except Exception as e:
                 print(f"PowerRecord Error: {e}")
@@ -499,7 +511,7 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
             with open(f"./Record/PowerRecord_{self.startTime}.csv", "w", encoding="GBK"
                       ) as f:
                 f.write(f"时间,功率,波长,补偿值\n")
-        with open(f"./Record/PowerRecord_{self.startTime}.csv", "a") as f:
+        with open(f"./Record/PowerRecord_{self.startTime}.csv", "a", encoding="GBK") as f:
             f.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + ","
                     + str(value) + "," + str(self.CH1_wave.text()[4:]) + "," + str(self.CH1_comp_2.text()[4:]) + "\n")
 
@@ -758,6 +770,28 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         self.portInfo.append("\n")
         self.portInfo.moveCursor(QtGui.QTextCursor.End)
 
+    def _cleanup_before_exit(self):
+        """退出前释放设备、采集线程和 TCP 服务资源。"""
+        self.stop_connection = True
+        if self.start_record:
+            self.stop_record_callback()
+
+        if self.future is not None:
+            try:
+                self.future.result(timeout=3.0)
+            except Exception:
+                pass
+
+        if self.device is not None and self.device.inst is not None:
+            self.device.disconnect()
+
+        if self.pool is not None:
+            self.pool.shutdown(wait=False)
+
+        if self.auto_server is not None:
+            self.auto_server.close_tcp_server()
+            self.auto_server.wait(2000)
+
     def closeEvent(self, event):
         reply = QtWidgets.QMessageBox.question(self,
                                                'PM100D功率计',
@@ -765,8 +799,7 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
                                                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
                                                QtWidgets.QMessageBox.No)
         if reply == QtWidgets.QMessageBox.Yes:
+            self._cleanup_before_exit()
             event.accept()
-            os._exit(0)
-
         else:
             event.ignore()

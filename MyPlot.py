@@ -37,15 +37,10 @@ class MyPlot(pg.GraphicsLayoutWidget):
         update_signal (pyqtSignal): 数据更新信号
     """
     
-    # 类属性：存储数据和位置信息
-    dataDict = {}
-    posDict = {}
-    NowPlotNo = 0
-    
     # 数据更新信号，接收包含新数据的字典
     update_signal = pyqtSignal(dict)
 
-    def __init__(self, dataDict, dataLen=30):
+    def __init__(self, dataDict, dataLen=1000):
         """
         初始化绘图控件
         
@@ -57,15 +52,20 @@ class MyPlot(pg.GraphicsLayoutWidget):
             >>> plot = MyPlot({'功率': [1, 2, 3], '电压': [0.1, 0.2, 0.3]})
         """
         super(MyPlot, self).__init__()
-        self.dataDict = dataDict
+        self.dataLen = dataLen
+        self.NowPlotNo = 0
+        self.posDict = {}
+        self.dataDict = {}
 
         # 初始化位置字典和数据转换
         for k, v in dataDict.items():
             self.posDict[k] = 0
-            if type(v) == list:
-                self.dataDict[k] = np.array(v)
-            elif type(v) == np.ndarray:
-                self.dataDict[k] = v
+            if isinstance(v, list):
+                self.dataDict[k] = np.array(v, dtype=float)
+            elif isinstance(v, np.ndarray):
+                self.dataDict[k] = v.astype(float)
+            else:
+                self.dataDict[k] = np.array([v], dtype=float)
 
         # 创建绘图区域
         self.plot1 = self.addPlot()
@@ -127,18 +127,14 @@ class MyPlot(pg.GraphicsLayoutWidget):
         Example:
             >>> plot.updateData({'功率': 4.5, '电压': 0.4})
         """
-        # 将新数据添加到对应的数据序列中
+        # 将新数据添加到对应的数据序列中，超出 dataLen 时保留最近的数据
         for k, v in dataAddDict.items():
-            # 将新数据追加到现有数据数组的末尾
-            self.dataDict[k] = np.append(self.dataDict[k], v)
-            
-            # 注释的代码是用于限制数据长度的滑动窗口实现
-            # if len(self.dataDict[k]) < self.dataLen:
-            #     self.dataDict[k] = np.append(self.dataDict[k], v)
-            # else:
-            #     self.dataDict[k][:-1] = self.dataDict[k][1:]
-            #     self.dataDict[k][-1] = v
-            #     self.posDict[k] += 1
+            if k not in self.dataDict:
+                continue
+            arr = np.append(self.dataDict[k], v)
+            if len(arr) > self.dataLen:
+                arr = arr[-self.dataLen:]
+            self.dataDict[k] = arr
 
         # 更新当前显示的数据序列
         key = list(self.dataDict.keys())[self.NowPlotNo]
