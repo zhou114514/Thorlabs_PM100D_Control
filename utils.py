@@ -154,7 +154,7 @@ def showAbout(self):
         需要确保项目根目录下存在"更新内容.csv"文件
     """
     # 读取 CSV 文件
-    df = pd.read_csv("更新内容.csv", header=None, names=None, encoding="GBK")
+    df = pd.read_csv("更新内容.csv", header=None, names=None, encoding="utf-8")
     # 将 DataFrame 转换为 HTML 表格字符串
     html_table = df.to_html(index=False, border=1)
     # 创建关于窗口

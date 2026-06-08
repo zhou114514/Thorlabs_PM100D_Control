@@ -61,8 +61,8 @@ def _load_version():
     if not os.path.exists("更新内容.csv"):
         return "Unknown"
     try:
-        df = pd.read_csv("更新内容.csv", header=None, index_col=None, encoding="GBK")
-        version = df.iloc[-1, 1]
+        df = pd.read_csv("更新内容.csv", header=None, index_col=None, encoding="utf-8")
+        version = df.iloc[-1, 0]
         if version is None or (isinstance(version, float) and pd.isna(version)):
             return "Unknown"
         return str(version)
