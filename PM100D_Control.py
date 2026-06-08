@@ -46,7 +46,7 @@ from queue import Queue
 
 from PM100D import PM100D
 from TCPClient import TCPClient
-from utils import showAbout, edit_config, read_config
+from utils import showAbout, edit_config, read_config, get_config_value, get_local_ip
 from concurrent.futures import ThreadPoolExecutor
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QMessageBox
@@ -124,7 +124,7 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         self.update_info(f"检测到设备:{self.device.rm.list_resources()}")
         # 设备字典
         self.Com_Dict = {}
-        # 读取配置
+        # 读取配置（不存在时自动创建 config.ini）
         self.config = read_config()
         # 初始化一个线程池供后续采集数据
         self.pool = None
@@ -139,11 +139,16 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         self.stop_connection = False
         # 是否在进行设置操作
         self.operation = False
-        # 自动化服务器端口
-        self.auto_port = 1235
+        # 远程控制服务地址（从配置文件读取）
+        self.auto_host = get_config_value("RemoteServer", "host", "")
+        if not self.auto_host:
+            self.auto_host = get_local_ip()
+            edit_config("RemoteServer", "host", self.auto_host)
+        self.auto_port = int(get_config_value("RemoteServer", "port", "1235"))
         # 启动自动化服务器
         self.auto_server = TCPServer(port=self.auto_port, func=self.auto_server_controller)
         self.auto_server.start()
+        self.update_info(f"远程控制服务地址: {self.auto_host}:{self.auto_port}")
         # 客户端用于接收消息的队列
         # 数据记录表
         self.value_record = {"max": -60.0, "min": None, "value": 0.0}
@@ -223,7 +228,18 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         for device in devices:
             self.Com_Dict["%s" % device] = "%s" % device
             self.Com.addItem(device)
+        self._select_last_resource()
         self.btn_group_enable(True)
+
+    def _select_last_resource(self):
+        """若上次连接的设备仍在列表中，则自动选中。"""
+        last_resource = get_config_value("Device", "last_resource", "")
+        if not last_resource:
+            return
+        index = self.Com.findText(last_resource)
+        if index >= 0:
+            self.Com.setCurrentIndex(index)
+            self.current_port_callback()
 
     def connect_sig(self, sig, info):
         """
@@ -295,6 +311,7 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
             self.Connect.setEnabled(False)
             self.Disconnect.setEnabled(True)
             self.startRecordBtn.setEnabled(True)
+            edit_config("Device", "last_resource", self.Com.currentText())
             self.update_info("连接成功！")
             return True
         else:

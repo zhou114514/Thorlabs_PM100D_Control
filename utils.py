@@ -16,6 +16,7 @@
 
 import configparser
 import os
+import socket
 import struct
 
 import pandas as pd
@@ -178,78 +179,122 @@ def showAbout(self):
 # 配置文件路径
 config_path = "./config.ini"
 
+# 默认配置项（首次运行或缺少字段时自动补全）
+DEFAULT_CONFIG = {
+    "RemoteServer": {
+        "host": "",
+        "port": "10012",
+    },
+    "Device": {
+        "last_resource": "",
+    },
+}
+
+
+def get_local_ip():
+    """获取本机 IP 地址，供远程客户端连接使用。"""
+    try:
+        return socket.gethostbyname(socket.gethostname())
+    except Exception:
+        return "127.0.0.1"
+
+
+def _write_config(config):
+    with open(config_path, "w", encoding="utf-8") as configfile:
+        config.write(configfile)
+
+
+def ensure_config():
+    """
+    确保配置文件存在；若不存在则按默认值创建。
+
+    Returns:
+        configparser.ConfigParser: 配置对象
+    """
+    config = configparser.ConfigParser()
+    if not os.path.exists(config_path):
+        for section, options in DEFAULT_CONFIG.items():
+            config.add_section(section)
+            for key, value in options.items():
+                config.set(section, key, value)
+        if not config.get("RemoteServer", "host"):
+            config.set("RemoteServer", "host", get_local_ip())
+        _write_config(config)
+        return config
+
+    config.read(config_path, encoding="utf-8")
+    changed = False
+    for section, options in DEFAULT_CONFIG.items():
+        if not config.has_section(section):
+            config.add_section(section)
+            changed = True
+        for key, value in options.items():
+            if not config.has_option(section, key):
+                config.set(section, key, value)
+                changed = True
+    if changed:
+        _write_config(config)
+    return config
+
 
 def read_config():
     """
-    读取配置文件
-    
-    从指定路径读取INI格式的配置文件。如果文件不存在或读取失败，
-    将返回None并打印错误信息。
-    
-    Returns:
-        configparser.ConfigParser: 包含配置数据的对象，失败时返回None
-        
-    Example:
-        >>> config = read_config()
-        >>> if config:
-        ...     print(config['SECTION']['key'])
-        
-    Note:
-        配置文件路径由全局变量config_path指定，默认为"./config.ini"
-    """
-    config = configparser.ConfigParser()
-    try:
-        if not os.path.exists(config_path):
-            print(f"配置文件 {config_path} 不存在")
-            return None
+    读取配置文件，若文件不存在则自动创建默认配置。
 
-        config.read(config_path)
-        return config
+    Returns:
+        configparser.ConfigParser: 包含配置数据的对象
+    """
+    try:
+        return ensure_config()
     except Exception as e:
         print(f"读取配置文件时出错: {e}")
-        return None
+        config = configparser.ConfigParser()
+        for section, options in DEFAULT_CONFIG.items():
+            config.add_section(section)
+            for key, value in options.items():
+                config.set(section, key, value)
+        return config
+
+
+def get_config_value(section, key, default=None):
+    """
+    读取单个配置项。
+
+    Args:
+        section (str): 配置节名
+        key (str): 配置键名
+        default: 默认值；省略时使用 DEFAULT_CONFIG 中的定义
+
+    Returns:
+        str: 配置值
+    """
+    if default is None and section in DEFAULT_CONFIG and key in DEFAULT_CONFIG[section]:
+        default = DEFAULT_CONFIG[section][key]
+    config = read_config()
+    try:
+        return config.get(section, key)
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        return default if default is not None else ""
 
 
 def edit_config(section, key, value):
     """
-    编辑配置文件
-    
-    向配置文件中添加或修改指定的配置项。如果配置文件不存在，
-    将创建一个新的配置文件。如果指定的节不存在，将自动创建。
-    
+    编辑配置文件中的指定项。
+
     Args:
-        section (str): 配置节名，如 'DATABASE'
-        key (str): 配置键名，如 'host'
-        value (str): 要设置的值，如 'localhost'
-        
+        section (str): 配置节名
+        key (str): 配置键名
+        value (str): 要设置的值
+
     Returns:
         bool: 操作是否成功
-        
-    Example:
-        >>> success = edit_config('DATABASE', 'host', 'localhost')
-        >>> if success:
-        ...     print("配置设置成功")
-        
-    Note:
-        所有的值都将以字符串形式保存到配置文件中
     """
     try:
         config = read_config()
-        if config is None:
-            # 如果文件不存在，创建一个新的配置对象
-            config = configparser.ConfigParser()
-
-        # 如果节不存在则添加
         if not config.has_section(section):
             config.add_section(section)
-
-        # 设置键值
-        config.set(section, key, value)
-
-        # 写入文件
-        with open(config_path, 'w') as configfile:
-            config.write(configfile)
-
+        config.set(section, key, str(value))
+        _write_config(config)
         return True
     except Exception as e:
         print(f"编辑配置文件时出错: {e}")
