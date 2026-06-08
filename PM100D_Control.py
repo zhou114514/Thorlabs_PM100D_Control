@@ -322,8 +322,17 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         data = json.loads(data)
         # 获取功率接口
         if data['opcode'] == "GetPower":
-            res_dict = {"CH1": str(self.CH1_Value.value())}
+            res_dict = {
+                "CH1": str(self.CH1_Value.value()),
+                "Unit": self.CH1_unit.text().strip(),
+            }
             return self.make_pack(True, res_dict, "Null")
+        elif data['opcode'] == "SetPowerUnit":
+            unit = data.get("parameter", {}).get("Unit", "")
+            success = self.set_power_unit(unit)
+            error_msg = "" if success else "设置功率单位错误!"
+            value = self.current_unit.strip().upper() if success else ""
+            return self.make_pack(success, value, error_msg)
         # 记录控制接口
         elif data['opcode'] == 'RecordCon':
             # 开始记录
@@ -578,37 +587,45 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
 
         return unit
 
-    def set_power_unit_callback(self) -> bool:
+    def set_power_unit(self, unit: str) -> bool:
         """
-        设置功率单位回调函数
+        设置功率单位，供 GUI 和远程接口调用。
+
+        Args:
+            unit: 功率单位，支持 W / DBM（大小写不敏感）
         """
         if self.device.inst is None:
             self.update_info("未连接功率计, 无法设置功率单位!")
             return False
 
-        # 获取用户选择的单位
-        selected_unit = self.CH1TUnit.currentText()
-        
-        # 设置前先停止采集
+        normalized = unit.strip().upper() if isinstance(unit, str) else ""
+        if normalized not in ("W", "DBM"):
+            self.update_info(f"不支持的功率单位: {unit}")
+            return False
+
         self.operation = True
-        
         try:
-            success = self.device.set_power_unit(selected_unit)
+            success = self.device.set_power_unit(normalized)
             if success:
-                # 更新显示并同步 current_unit 用于界面缩放
-                unit = self.device.get_power_unit()
-                self.current_unit = unit.strip() if isinstance(unit, str) else selected_unit
-                self.CH1_unit.setText(str(unit))
-                self.update_info(f"功率单位设置成功: {unit}")
+                actual_unit = self.device.get_power_unit()
+                self.current_unit = actual_unit.strip().upper() if isinstance(actual_unit, str) else normalized
+                self.CH1_unit.setText(str(actual_unit))
+                index = self.CH1TUnit.findText(normalized)
+                if index >= 0:
+                    self.CH1TUnit.setCurrentIndex(index)
+                self.update_info(f"功率单位设置成功: {self.current_unit}")
                 return True
-            else:
-                self.update_info("功率单位设置失败!")
-                return False
+            self.update_info("功率单位设置失败!")
+            return False
         except Exception as e:
             self.update_info(f"设置功率单位时发生错误: {e}")
             return False
         finally:
             self.operation = False
+
+    def set_power_unit_callback(self) -> bool:
+        """设置功率单位 GUI 回调。"""
+        return self.set_power_unit(self.CH1TUnit.currentText())
 
     def set_compensation(self) -> bool:
         """
