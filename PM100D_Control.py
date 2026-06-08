@@ -265,25 +265,25 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
             try:
                 # 更新自动量程状态
                 if self.auto_range_status():
-                    self.CH1_range.setText("自动量程" + ": 开启")
+                    self.CH1_range.setText("开启")
                     self.enableAutoRange.setEnabled(False)
                     self.disableAutoRange.setEnabled(True)
                 else:
-                    self.CH1_range.setText("自动量程" + ": 关闭")
+                    self.CH1_range.setText("关闭")
                     self.enableAutoRange.setEnabled(True)
                     self.disableAutoRange.setEnabled(False)
                 # 更新波长
                 wavelength = self.wavelength()
-                self.CH1_wave.setText("波长值: " + str(wavelength))
+                self.CH1_wave.setText(str(wavelength))
 
                 # 更新补偿值
                 comp = self.compensation()
-                self.CH1_comp_2.setText("补偿值: " + str(comp))
+                self.CH1_comp_2.setText(str(comp))
 
                 # 更新功率单位
                 unit = self.power_unit()
                 self.current_unit = unit.strip() if isinstance(unit, str) else 'W'
-                self.CH1_unit.setText("功率单位: " + str(unit))
+                self.CH1_unit.setText(str(unit))
 
                 # 开启采集线程
                 self.pool = ThreadPoolExecutor(max_workers=2)
@@ -451,7 +451,7 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         self.CH1_min.display(self._format_lcd(self.value_record["min"] * scale_factor))
 
         # 实时更新单位标签，反映当前自动选择的前缀
-        self.CH1_unit.setText(f"功率单位: {unit_label}")
+        self.CH1_unit.setText(unit_label)
 
         if self.start_record:
             self.CH1_plot.update_signal.emit({'功率': value})
@@ -581,7 +581,7 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
                 # 更新显示并同步 current_unit 用于界面缩放
                 unit = self.device.get_power_unit()
                 self.current_unit = unit.strip() if isinstance(unit, str) else selected_unit
-                self.CH1_unit.setText("功率单位: " + str(unit))
+                self.CH1_unit.setText(str(unit))
                 self.update_info(f"功率单位设置成功: {unit}")
                 return True
             else:
@@ -609,7 +609,7 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         self.operation = False
 
         if success:
-            self.CH1_comp_2.setText("补偿值值: " + self.CH1_comp.text())
+            self.CH1_comp_2.setText(self.CH1_comp.text())
             self.update_info(f"补偿值设置成功！")
             # print(f"补偿值设置成功！")
             return True
@@ -632,7 +632,7 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         wavelength = int(self.CH1Twave.currentText()[:-2])
         success = self.device.set_wavelength(wavelength)
         if success:
-            self.CH1_wave.setText("波长值: " + self.CH1Twave.currentText()[:-2])
+            self.CH1_wave.setText(self.CH1Twave.currentText()[:-2])
             self.update_info(f"波长设置成功！")
             # print(f"波长设置成功！")
         else:
@@ -661,13 +661,13 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         # time.sleep(0.1)
         success = self.device.start_auto_range()
         if success:
-            self.CH1_range.setText("自动量程" + ": 开启")
+            self.CH1_range.setText("开启")
             self.update_info(f"自动范围已开启！")
             # print(f"自动范围已开启！")
             self.enableAutoRange.setEnabled(False)
             self.disableAutoRange.setEnabled(True)
         else:
-            self.CH1_range.setText("自动量程" + ": 关闭")
+            self.CH1_range.setText("关闭")
             self.update_info(f"自动范围开启失败！")
             # print(f"自动范围开启失败！")
             self.enableAutoRange.setEnabled(True)
@@ -682,13 +682,13 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
         # time.sleep(0.1)
         success = self.device.stop_auto_range()
         if success:
-            self.CH1_range.setText("自动量程" + ": 关闭")
+            self.CH1_range.setText("关闭")
             self.update_info(f"自动范围已关闭！")
             # print(f"自动范围已关闭！")
             self.enableAutoRange.setEnabled(True)
             self.disableAutoRange.setEnabled(False)
         else:
-            self.CH1_range.setText("自动量程" + ": 开启")
+            self.CH1_range.setText("开启")
             self.update_info(f"自动范围关闭失败！")
             # print(f"自动范围关闭失败！")
             self.enableAutoRange.setEnabled(False)
@@ -738,10 +738,10 @@ class PM100D_Control(QtWidgets.QMainWindow, Ui_MainWindow):
     @staticmethod
     def _format_lcd(value: float) -> str:
         """
-        将已缩放后的数值格式化为适合 7 位 LCD 的字符串。
+        将已缩放后的数值格式化为适合 9 位 LCD 的字符串。
 
-        整数位越多，保留的小数位越少，始终保持 6 位有效数字以内，
-        避免超出 QLCDNumber 的显示位数。
+        整数位越多，保留的小数位越少，始终保持 8 位有效数字以内，
+        避免超出 QLCDNumber 的显示位数（含负号）。
         """
         if value == 0:
             return "0"
